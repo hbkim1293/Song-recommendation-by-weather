@@ -1,0 +1,87 @@
+---
+title: "기상 데이터를 기반으로 Kmeans군집분석"
+author: "프로젝트 주도형 빅데이터 전문가 양성과정 2차 파일럿 프로젝트 4조(이슬비, 양주영, 이민수, 김희범)"
+date: "2018년 10월 26일"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+<h3>개요</h3>
+<p>여기서 수행하는 것은 날씨에 따른 노래 추천 프로젝트 과정입니다. 2017년1월부터 2107년9월30일까지의 기상 데이터를 유사한 기상에 따라 군집화하기 위해 Kmeans 군집분석을  시도하였습니다. 기상정보는 평균기온, 일강수량, 평균풍속, 평균상대습도, 일최심신적설, 평균전운량, 평균층운량, 안개계속시간으로 총 8가지입니다.</p>
+
+<h3>데이터 전처리</h3>
+<p>기상원데이터는 지역별로 기상 정보가 나열되어있습니다. 프로젝트의 분석 목적에 맞게 활용하기 위해 날짜별로 각 기상 컬럼을 평균내어 이를 전국적인 기상 정보라고 간주하였습니다.</p>
+```{r}
+#필요한 라이브러리 로드
+library(dplyr)      #전처리에 이용
+library(factoextra) #군집 최적화를 위한 시각화에 이용
+library(ggplot2)    #군집분석 결과의 시각화에 이용
+
+#기상 정보 데이터를 불러옵니다.
+weather <- read.csv("C:/R/BigData/weather.csv")
+
+#기상 데이터 전처리
+weatherMean <- weather %>% group_by(일시) %>%
+  summarise(평균기온.C = mean(평균기온..C.),
+                일강수량.mm = mean(일강수량.mm.),
+                평균풍속.m.s = mean(평균.풍속.m.s.),
+                평균상대습도.per = mean(평균.상대습도...),
+                일최신심적설.cm = mean(일.최심신적설.cm.),
+                평균전운량.0.1 = mean(평균.전운량.1.10.),
+                평균중하층운량.0.1 = mean(평균.중하층운량.1.10.),
+                안개계속시간.hr = mean(안개.계속시간.hr.))
+
+colnames(weatherMean) <- c("date","mean1","mean2","mean3","mean4","mean5","mean6","mean7","mean8")
+#mean1 = 평균기온
+#mean2 = 일강수량
+#mean3 = 평균풍속
+#mean4 = 평균습도
+#mean5 = 적설량
+#mean6 = 전운량
+#mean7 = 층운량
+#mean8 = 안개
+head(weatherMean)
+```
+
+<h3>Kmeans 군집분석</h3>
+<p>원하는 군집을 얻기 위해 특정 열을 제거해보고, 변수를 정규화하는 등 다양한 경우를 시도하였습니다. 그 중에서 선택한 하나의 방식을 소개하겠습니다.</p>
+<p>최심신적설이 0초과인 날을 눈이 온 날로 간주하여 하나의 군집으로 묶고 나머지 날짜들을 가지고 Kmeans 군집분석을 시도하였습니다.</p>
+
+```{r}
+#최신심적설이 0초과인 경우와 0인 경우로 데이터 테이블을 나눕니다.
+kmeansData <- weatherMean %>% select(-date)     #kmeans군집분석에 필요없는 열 삭제
+noSnow <- kmeansData[kmeansData$mean5 == 0,]    #최신심적설이 0인 데이터 테이블 생성
+yesSnow <- kmeansData[kmeansData$mean5 > 0,]    #최신심적설이 0 초과인 데이터 테이블 생성
+noSnow <- noSnow[,-5]                           #최신심적설은 이제 필요없는 컬럼이 되므로 삭제
+yesSnow <- yesSnow[,-5]
+yesSnow$cluster <- 5                            #최신심적설이 0초과인 테이블은 cluster컬럼의 숫자를 모두 '5'를 부여
+```
+
+<p>군집의 개수를 임의로 정하기보다 최적의 군집 수를 참고하기 위해 factoextra패키지의 fviz_nbclust 함수를 이용하였습니다. elbow 방식을 이용하였습니다.</p>
+```{r}
+#최신심적설이 0인 데이터에서 최적의 군집 개수를 알아보기
+fviz_nbclust(noSnow, kmeans, method = "wss") +
+    geom_vline(xintercept = 4, linetype = 2)+
+    labs(subtitle = "모든 기상 정보 사용 / 적설량 0 초과 구분 O / 변수 정규화 X") 
+```
+<p>그래프를 통해 최신심적설이 0인 데이터는 4개의 군집으로 나누는 것이 최적임을 확인하였습니다. 따라서 중심을 4개로 설정하고 kmeans 분석을 시도하였습니다.</p>
+```{r}
+kmeansObj <- kmeans(noSnow, centers = 4)
+kmeansObj$size      #각 군집안에 몇개의 레코드가 들어갔는지 확인합니다.
+```
+
+<p>군집이 어떻게 나누어졌는지 확인하겠습니다. 기상 정보가 8개이므로 그 중 평균기온, 일강수량 정보만 이용하여 시각화해보았습니다.</p>
+```{r}
+
+noSnow$cluster <- kmeansObj$cluster     #최심신적설이 0인 테이블에 군집을 분류한 열을 추가
+kmeansData <- rbind(noSnow, yesSnow)    #적설량으로 나누었던 테이블을 합침
+
+#x축을 평균기온, y축을 일강수량으로 하여 군집별 색 구분된 그래프 시각화
+#일강수량은 분포가 잘 구분되지 않으므로 log함수를 적용한 결과를 이용
+ggplot(kmeansData, aes(x = mean1, y = log(mean2), color = factor(cluster))) + geom_point() +
+    theme_classic() + ggtitle("모든 기상 정보 사용 / 적설량 0 초과 구분 O / 변수 정규화 X")
+```
+

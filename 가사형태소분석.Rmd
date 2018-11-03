@@ -1,0 +1,61 @@
+---
+title: "KoNLP를 이용한 가사 형태소 분석"
+author: "프로젝트 주도형 빅데이터 전문가 양성과정 2차 파일럿 프로젝트 4조(이슬비, 양주영, 이민수, 김희범)"
+date: "2018년 10월 26일"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+<h3>개요</h3>
+<p>가사 데이터로부터 koNLP를 패키지를 이용하여 형태소 분석을 하였습니다. 의미있는 키워드만 추출하기 위해 NC(보통명사), NQ(고유명사), PV(동사), PA(형용사) 형태소만 가져왔습니다.</p>
+
+<h3>데이터 전처리</h3>
+<p>코드 수행에 필요한 데이터는
+</br>AllChart.csv
+</br>weatherIndex.csv
+입니다. 데이터는 첨부 파일을 다운로드하면 됩니다.</p>
+```{r}
+#데이터 로드
+allChart <- read.csv("C:/R/BigData/AllChart.csv")
+weather <- read.csv("C:/R/BigData/weatherIndex.csv")
+
+#사용할 패키지 불러오기
+library(dplyr) #데이터 전처리에 이용
+library(KoNLP) #형태소 분석에 이용
+## KoNLP패키지 다운로드하고 로드할때 오류가 발생하는 경우가 있습니다. rJava관련 오류 발생 시 update.packages("rJava") 를 수행하면 해결 가능성이 있습니다.
+
+##데이터 전처리
+weather <- weather[,-1] #필요없는 열 제거하기
+
+#열 이름 변경하기
+colnames(weather) <- c("chartDate","평균기온.C","일강수량.mm",
+                       "평균풍속.m.s","평균상대습도.per","일최신심적설.cm",
+                       "평균전운량.0.1","평균중하층운량.0.1","안개계속시간.hr",
+                       "index")
+
+allChart <- merge(allChart, weather[,c(1,10)], by = "chartDate") #allChart테이블에 기상군집index 추가하기 위해 조인
+
+#1번 기상 군집에 해당하는 chart데이터만 가져와 보겠습니다.
+Chart1 <- allChart %>% 
+    filter(index == 1) %>%      #1번 군집만 가져오기
+    select(-chartDate)          #형태소 분석에 필요없는 열 제거
+
+Chart1 <- Chart1[!duplicated(Chart1),] #중복된 곡 삭제하기
+```
+
+<h3>KoNLP패키지 이용하여 형태소 분석하기</h3>
+<p>먼저 예시로 Chart1의 첫번째 곡 가사만 형태소 분석하겠습니다.</p>
+```{r}
+lyric <- Chart1$lyrics[1]       #첫번째 가사 문자열을 lyric에 저장
+words <- SimplePos22((as.character(lyric)))       #lyric를 문자열로 변환 후 22개 형태소로 분해 하는 SimPos22함수 이용
+words <- paste(words)       #paste를 이용하여 리스트 형식이었던 words를 하나의 벡터로 변환
+words <- words[grep("NC|NQ|PV|PA|F",words)]     #22개 형태소중 원하는 형태소의 단어만 추출
+words <- substr(words,1,regexpr("/",words)-1)   #형태소 정보는 제거하고 단어만 추출
+words <- unique(words)  #중복되는 단어 제거
+words
+```
+
+<p>프로젝트 수행을 위해 5개 군집별 모든 곡의 가사를 형태소 분석한 코드는 script파일을 첨부하였습니다. 위 코드를 응용하여 for문을 이용하고 table함수로 추출된 키워드의 빈도 테이블을 생성하였습니다.</p>
